@@ -1,4 +1,4 @@
-# SVD-Loader for Ghidra
+# SVD-Loader for IDA and Ghidra
 
 [For more information, read our blog post.](https://leveldown.de/blog/svd-loader/)
 
@@ -7,8 +7,10 @@
 Simply add the checked-out Git repository to your Ghidra-Scripts search paths.
 
 ## Usage
-
-The script can be found in the `leveldown security` folder in Ghidra's Script Manager. [More info here.](https://leveldown.de/blog/svd-loader/)
+Ghidra :
+    - The script can be found in the `leveldown security` folder in Ghidra's Script Manager. [More info here.](https://leveldown.de/blog/svd-loader/)
+IDA :
+    - Launch SVD-Loader-IDA.py
 
 ## Getting SVDs
 

@@ -14,8 +14,34 @@ import idc
 import idaapi
 import idautils
 from idaapi import simplecustviewer_t
-from idaapi import Choose2
 
+def genSegAlign(ea, alignment):
+    if hasattr(idc, "set_segm_attr") and callable(getattr(idc, "set_segm_attr")):
+        return idc.set_segm_attr(ea, 20, alignment)
+
+def genAddStruc(index, name):
+    if hasattr(idc, "add_struc") and callable(getattr(idc, "add_struc")):
+        return idc.add_struc(index, name, 0)
+
+try:
+    from idaapi import Choose2
+except:
+    from idaapi import Choose as Choose2
+    idc.RenameSeg = idc.set_segm_name
+    idc.SetSegClass = idc.set_segm_class
+    idc.SegAlign = genSegAlign
+    idc.SetSegmentAttr = idc.set_segm_attr
+    idc.GetStrucIdByName = ida_struct.get_struc_id
+    idc.DelStruc = idc.del_struc
+    idc.AddStruc = genAddStruc
+    idc.AddStrucEx = idc.add_struc
+    idc.AddStrucMember = idc.add_struc_member
+    idc.SetMemberComment = idc.set_member_cmt
+    idc.MakeStructEx = idc.create_struct
+    idc.GetStrucSize = ida_struct.get_struc_size
+    idc.MakeNameEx = idc.set_name
+
+from helpers import *
 
 from cmsis_svd.parser import SVDParser
 #from __future__ import print_function
@@ -25,8 +51,11 @@ logger = logging.getLogger(__name__)
 
 from idaapi import PluginForm
 
-from PyQt5.QtWidgets import (QWidget, QPushButton, QLabel,
-    QHBoxLayout, QVBoxLayout, QApplication, QTreeWidget, QTreeWidgetItem, QTreeWidgetItem)
+try:
+    from PyQt5.QtWidgets import (QWidget, QPushButton, QLabel, QHBoxLayout, QVBoxLayout, QApplication, QTreeWidget, QTreeWidgetItem, QTreeWidgetItem)
+except:
+    pass
+
 
 
 
@@ -43,7 +72,7 @@ def get_xref_to_seg(seg):
     for ea in idautils.Heads(start, end):
         gen_xrefs = XrefsTo(ea, 0)
         for xx in gen_xrefs:
-            print hex(ea), hex(xx.frm),
+            print(hex(ea), hex(xx.frm))
 
 
 def addPrefixToFunctionName(prefix, functionAddr):
@@ -68,8 +97,10 @@ class NameSpaceForm(PluginForm):
 
     def OnCreate(self, form):
         self.myform = form
-        self.parent = self.FormToPyQtWidget(form)
-        self.PopulateForm()
+        if form:
+            self.parent = self.FormToPyQtWidget(form)
+            if self.parent:
+                self.PopulateForm()
         return
 
     def PopulateForm(self):
@@ -175,51 +206,6 @@ def prompt_for_svd():
     f.Free()
     return path
 
-
-class MemoryRegion:
-    def __init__(self, name, start, end):
-        self.name = name
-        self.start = start
-        self.end = end
-
-    def length(self):
-        return self.end - self.start
-
-def reduce_memory_regions(regions):
-    for i in range(len(regions)):
-        r1 = regions[i]
-        for j in range(len(regions)):
-            r2 = regions[j]
-            # Skip self
-            if i == j:
-                continue
-            if r1.end < r2.start:
-                continue
-            if r2.end < r1.start:
-                continue
-            # We are overlapping, generate larger area and call
-            # reduce_memory_regions again.
-            regions[i].start = min(r1.start, r2.start)
-            regions[i].end = max(r1.end, r2.end)
-            regions[i].name = r1.name + "_" + r2.name
-            regions.remove(regions[j])
-            return reduce_memory_regions(regions)
-    return regions
-
-
-def calculate_peripheral_size(peripheral):
-    size = 0
-    for register in peripheral.registers:
-        try:
-            size = max(size, register.address_offset + register.size/8)
-        except:
-            size = 0
-            print("ERROR:")
-            print(size, register.address_offset, register.size)
-            print(dir(register))
-    return size
-
-
 def add_segment(addr, seglen, name,seg_type='Peripheral', perms=(4 | 2)):  # READ | WRITE
     print("[+] creating seg: 0x%08X: %d" % (addr, 4))
     if not idc.AddSeg(addr, addr + seglen, 0, 1, 0, idaapi.scPub):
@@ -233,7 +219,7 @@ def add_segment(addr, seglen, name,seg_type='Peripheral', perms=(4 | 2)):  # REA
 
     if not idc.SegAlign(addr, idc.saRelPara):
         logger.warning('[!] failed to align segment: %s', name)
-    if not idc.SetSegmentAttr(addr, idc.SEGATTR_PERM, perms )
+    if not idc.SetSegmentAttr(addr, idc.SEGATTR_PERM, perms ):
         logger.warning('[!] failed to set permitions for segment class: %s', name)
     return 1
 
@@ -259,6 +245,8 @@ def main(argv=None):
     cpu_type = parser.get_device().cpu.name
     # little/big
     cpu_endian = parser.get_device().cpu.endian
+
+    default_register_size = parser.get_device().size
 
     # Not all SVDs contain these fields
     if cpu_type and not cpu_type.startswith("CM"):
@@ -304,13 +292,13 @@ def main(argv=None):
             # Iterage registers to get size of peripheral
             # Most SVDs have an address-block that specifies the size, but
             # they are often far too large, leading to issues with overlaps.
-            length = calculate_peripheral_size(peripheral)
+            length = calculate_peripheral_size(peripheral, default_register_size)
             peripheral_name = "struct_"+peripheral.name
             # Generate structure for the peripheral
-            p_sid = GetStrucIdByName(peripheral_name)
+            p_sid = idc.GetStrucIdByName(peripheral_name)
             if p_sid != -1:
-                DelStruc(p_sid)
-            p_sid = AddStrucEx(-1, peripheral_name, 0)
+                idc.DelStruc(p_sid)
+            p_sid = idc.AddStrucEx(-1, peripheral_name, 0)
 
             peripheral_start = peripheral.base_address
             peripheral_end = peripheral_start + length
@@ -333,14 +321,14 @@ def main(argv=None):
                     # Generate structure for the register
                     print("\t %s, %d, %x, %d" % (register.name, register.address_offset, r_flag, rs))
                     r_name = register.name
-                    AddStrucMember(p_sid, r_name , register.address_offset,flag=r_flag,typeid=-1,nbytes=register.size/8)
-                    SetMemberComment(p_sid, register.address_offset, register.description, 1)
-                    MakeStructEx(peripheral_start, GetStrucSize(p_sid), peripheral_name)
-                    MakeNameEx(peripheral_start,peripheral.name, SN_AUTO | SN_NOCHECK)
+                    idc.AddStrucMember(p_sid, r_name , register.address_offset,flag=r_flag,typeid=-1,nbytes=register.size/8)
+                    idc.SetMemberComment(p_sid, register.address_offset, register.description, 1)
+                    idc.MakeStructEx(peripheral_start, idc.GetStrucSize(p_sid), peripheral_name)
+                    idc.MakeNameEx(peripheral_start,peripheral.name, SN_AUTO | SN_NOCHECK)
 
     try:
         # created already?
-        print "Already created, will close it..."
+        print("Already created, will close it...")
         nvw.Close()
         del nvw
     except:
@@ -364,7 +352,7 @@ class SVDLoaderPlugin(idaapi.plugin_t):
         print("-*" * 40)
         print("")
         print("         SVD Loader ")
-        print("             (c) Mathieu Renard <dark@gotohack.org>")
+        print("             (c) Mathieu Renard <dark@gotohack.io>")
         print("             (c) Thomas Roth <thomas.roth@leveldown.de>")
         print("")
         print("-" * 80)

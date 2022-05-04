@@ -16,7 +16,7 @@ from ghidra.program.model.mem import MemoryBlockType
 from ghidra.program.model.address import AddressFactory
 from ghidra.program.model.symbol import SourceType
 from ghidra.program.model.mem import MemoryConflictException
-from SVD-loader import *
+from helpers import *
 
 
 svd_file = askFile("Choose SVD file", "Load SVD File")
@@ -29,6 +29,8 @@ print("\tDone!")
 cpu_type = parser.get_device().cpu.name
 # little/big
 cpu_endian = parser.get_device().cpu.endian
+
+default_register_size = parser.get_device().size
 
 # Not all SVDs contain these fields
 if cpu_type and not cpu_type.startswith("CM"):
@@ -95,7 +97,7 @@ for peripheral in peripherals:
 		# Iterage registers to get size of peripheral
 		# Most SVDs have an address-block that specifies the size, but
 		# they are often far too large, leading to issues with overlaps.
-		length = calculate_peripheral_size(peripheral)
+		length = calculate_peripheral_size(peripheral,default_register_size)
 
 		# Generate structure for the peripheral
 		peripheral_struct = StructureDataType(peripheral.name, length)

@@ -1,21 +1,4 @@
 # Load specified SVD and generate peripheral memory maps & structures.
-#@author Thomas Roth thomas.roth@leveldown.de
-#@category leveldown security
-#@keybinding 
-#@menupath 
-#@toolbar
-
-# More information:
-# https://leveldown.de/blog/svd-loader/
-# License: GPLv3
-
-from cmsis_svd.parser import SVDParser
-from ghidra.program.model.data import Structure, StructureDataType, UnsignedIntegerDataType, DataTypeConflictHandler
-from ghidra.program.model.data import UnsignedShortDataType, ByteDataType, UnsignedLongLongDataType
-from ghidra.program.model.mem import MemoryBlockType
-from ghidra.program.model.address import AddressFactory
-from ghidra.program.model.symbol import SourceType
-from ghidra.program.model.mem import MemoryConflictException
 
 class MemoryRegion:
 	def __init__(self, name, start, end):

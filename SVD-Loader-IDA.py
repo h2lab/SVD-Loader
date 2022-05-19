@@ -40,6 +40,21 @@ except:
     idc.MakeStructEx = idc.create_struct
     idc.GetStrucSize = ida_struct.get_struc_size
     idc.MakeNameEx = idc.set_name
+    idc.GetFunctionName = idc.get_func_name
+    idc.isCode = ida_bytes.is_code
+    ida_bytes.getFlags = ida_bytes.get_full_flags
+    idc.MakeCode = idc.create_insn
+    idc.MakeFunction = ida_funcs.add_func
+    idc.Jump = ida_kernwin.jumpto
+    ida_auto.autoWait = ida_auto.auto_wait
+    idc.ItemHead = ida_bytes.get_item_head	
+    idc.ItemEnd = ida_bytes.get_item_end	
+    idc.ItemSize = idc.get_item_size	
+    idc.AnalyzeRange = idc.plan_and_wait
+    idc.MakeUnkn = ida_bytes.del_items
+    idc.DOUNK_EXPAND = ida_bytes.DELIT_EXPAND
+    ida_auto.analyze_area = ida_auto.plan_and_wait
+
 
 from helpers import *
 
@@ -49,12 +64,7 @@ from cmsis_svd.parser import SVDParser
 logger = logging.getLogger(__name__)
 
 
-from idaapi import PluginForm
-
-try:
-    from PyQt5.QtWidgets import (QWidget, QPushButton, QLabel, QHBoxLayout, QVBoxLayout, QApplication, QTreeWidget, QTreeWidgetItem, QTreeWidgetItem)
-except:
-    pass
+#from PyQt5.QtWidgets import QWidget, QPushButton, QLabel, QHBoxLayout, QVBoxLayout, QApplication, QTreeWidget, QTreeWidgetItem, QTreeWidgetItem
 
 
 
@@ -75,96 +85,105 @@ def get_xref_to_seg(seg):
             print(hex(ea), hex(xx.frm))
 
 
-def addPrefixToFunctionName(prefix, functionAddr):
-    name = GetFunctionName(functionAddr)
-    print("addPrefixToFunctionName:%s-%08x" % (prefix, functionAddr))
-    name = ""
-    if (name and not name.startswith(prefix)):
-        name = prefix + name
-        print("Function 0x%x => Name: " % (functionAddr, name))
-        #idc.MakeNameEx(int(curr_addr), name, idc.SN_NOWARN)
-        idc.set_name(functionAddr, name, anyway=True)
+def RenameFunction(name, item):
+    start_addr = idc.get_func_attr(item,idc.FUNCATTR_START)
+    cur_name = idc.GetFunctionName(item)
+    new_name = "%s_%08x" % (name, start_addr)
+    if cur_name.startswith(name) == False:
+        print("Renaiming function @ 0x%x: %s => %s " % (start_addr, cur_name, new_name))
+        idc.set_name(start_addr, new_name, 0x01)
 
 
-class NameSpaceForm(PluginForm):
+class NameSpaceForm(idaapi.PluginForm):
 
     def __init__(self, peripherals=None):
         idaapi.PluginForm.__init__(self)
         self.peripherals = peripherals
-        self.__name = "Namespaces"
+        self.__name = "Peripherals"
         self.peripherals = peripherals
-        return
 
     def OnCreate(self, form):
         self.myform = form
-        if form:
-            self.parent = self.FormToPyQtWidget(form)
-            if self.parent:
-                self.PopulateForm()
-        return
+        self.parent = self.FormToPyQtWidget(self.myform)
+        self.PopulateForm()
 
     def PopulateForm(self):
-        layout = QVBoxLayout()
-        layout.addWidget(QLabel(self.__name))
-        self.tree = QTreeWidget()
+        layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(QtWidgets.QLabel(self.__name))
+        self.tree = QtWidgets.QTreeWidget()
         layout.addWidget(self.tree)
-        self.tree.setHeaderLabels(("Peripherals",))
+        self.tree.setHeaderLabels(("Peripherals","Function Name","Address","Instructions"))
         self.tree.setColumnCount(4)
-        self.tree.setColumnWidth(0, 100)
-        self.tree.setColumnWidth(0, 300)
-        self.tree.setColumnWidth(0, 300)
+        self.tree.setColumnWidth(0, 200)
+        self.tree.setColumnWidth(1, 300)
+        self.tree.setColumnWidth(2, 200)
+        self.tree.setColumnWidth(3, 200)
         self.tree.setSortingEnabled(True)
         self.tree.itemClicked.connect(self.OnClick)
         self.PopulateTree()
         self.parent.setLayout(layout)
-        return
 
     def Show(self):
         idaapi.PluginForm.Show(self, self.__name)
-        return
 
 
     def PopulateTree(self):
-        self.tree.clear()
-        root = QTreeWidgetItem(self.tree)
+        print("Populating tree...")
+        #self.tree.clear()
         root.setText(0, "Peripherals")
-        root.setText(1, "Function Name")
-        root.setText(2, "Address")
-        root.setText(3, "Instruction")
+        root = QtWidgets.QTreeWidgetItem(self.tree)
         for p in self.peripherals:
-            p_item = QTreeWidgetItem(root)
+            p_item = QtWidgets.QTreeWidgetItem(root)
             p_item.setText(0, p.name)
             xrefs = XrefsTo(p.base_address, 0)
             last_func = None
             last_p_func = None
             for x in xrefs:
-                func_name = GetFunctionName(x.frm)
-                print("isCode: %d" % isCode(GetFlags(x.frm)))
-                if not isCode(GetFlags(x.frm)):
-                    MakeCode(x.frm)
-                    MakeFunction(x.frm)
-                    t = idaapi.generate_disasm_line(x.frm)
-                    if t:
-                        line = idaapi.tag_remove(t)
-                    else:
-                        line = ""
-                    print("New Func @%08x => %s"% (x.frm,func_name))
+                item    = idc.ItemHead(x.frm)
+                itemend = idc.ItemEnd(x.frm)
+                
+                print("Name: %s XRef: 0x%08x Head: 0x%08x End: 0x%08x" % (p.name, x.frm, item, itemend))
+                if item == idc.BADADDR:
+                    print("[!] BADADDR @ 0x%08x: (%x)!" % (x.frm, item))
+                    break
 
-                addPrefixToFunctionName("Auto_%s_%08x" % (p.name, x.frm),x.frm)
+                idc.MakeUnkn(item, idc.DOUNK_EXPAND)
+                if idc.isCode(ida_bytes.getFlags(item)) == 0:
+                    if idc.MakeCode(item) == 0:
+                        print("[!] fail to decode instr @ 0x%08x!" % item)
+                    ida_auto.autoWait()
 
-                if last_func != func_name:
-                    last_func = GetFunctionName(x.frm)
-                    p_func = QTreeWidgetItem(p_item)
-                    p_func.setText(1, "%s" % GetFunctionName(x.frm))
-                    print("Rename Func @%08x => %s"% (x.frm,func_name))
-                    last_p_func = p_func
-                p_addr = QTreeWidgetItem(last_p_func)
-                p_addr.setText(2, "0x%08x" % x.frm)
-                p_inst = QTreeWidgetItem(last_p_func)
-                p_inst.setText(3,GetDisasm(x.frm))
+                if idc.GetFunctionName(item) == "":
+                    if idc.MakeFunction(item) == 0:
+                        print("[!] fail to create function @ 0x%08x!" % item)
+                ida_auto.autoWait()
+                
+                RenameFunction(p.name, item)
+                ida_auto.autoWait()
+                func_name = idc.GetFunctionName(item)
+
+                # Give IDA a chance to analyze the new code or else we won't be able to create a
+                ida_auto.analyze_area(item, itemend)
+                
+                p_func = QtWidgets.QTreeWidgetItem(p_item)
+                p_func.setText(1, "%s" % func_name)
+                
+                p_addr = QtWidgets.QTreeWidgetItem(p_item)
+                p_addr.setText(2, "0x%08x" % item)
+                
+                p_inst = QtWidgets.QTreeWidgetItem(p_item)
+                p_inst.setText(3,idc.GetDisasm(item))               
+                
+                last_p_func = p_func
+
+
+        print("Done")
 
     def OnClose(self, form):
-        pass
+        global nvw
+        del nvw
+        print("Closed")
+        return 1
 
     def OnClick(self, it, col):
         print(it, col, it.text(col))
@@ -195,13 +214,13 @@ def prompt_for_svd():
     f.path.value = ""
     ok = f.Execute()
     if ok != 1:
-        raise BadInputError('user cancelled')
+        raise BadInputError('[!] user cancelled')
     path = f.path.value
     if path == "" or path is None:
-        raise BadInputError('bad path provided')
+        raise BadInputError('[!] bad path provided')
 
     if not os.path.exists(path):
-        raise BadInputError('file doesn\'t exist')
+        raise BadInputError('[!] file doesn\'t exist')
 
     f.Free()
     return path
@@ -262,7 +281,8 @@ def main(argv=None):
 
     print("[+] Geting peripherals...")
     peripherals = parser.get_device().peripherals
-
+    print("\tDone!")
+    
     print("[+] Generating memory regions...")
     # First, we need to generate a list of memory regions.
     # This is because some SVD files have overlapping peripherals...
@@ -274,10 +294,9 @@ def main(argv=None):
         memory_regions.append(MemoryRegion(peripheral.name, start, end))
 
     memory_regions = reduce_memory_regions(memory_regions)
-
     # Create segment:
     for r in memory_regions:
-        print(r.start, r.length(), r.name)
+        #print(r.start, r.length(), r.name)
         add_segment(r.start, r.length(), r.name)
     print("\tDone!")
 
@@ -287,53 +306,49 @@ def main(argv=None):
         if(len(peripheral.registers) == 0):
             print("\t\tNo registers.")
             continue
+        # Iterage registers to get size of peripheral
+        # Most SVDs have an address-block that specifies the size, but
+        # they are often far too large, leading to issues with overlaps.
+        length = calculate_peripheral_size(peripheral, default_register_size)
+        peripheral_name = "struct_"+peripheral.name
+        # Generate structure for the peripheral
+        p_sid = idc.GetStrucIdByName(peripheral_name)
+        if p_sid != -1:
+            idc.DelStruc(p_sid)
+        p_sid = idc.AddStrucEx(-1, peripheral_name, 0)
 
-        if 1: #FIXME DEBUG
-            # Iterage registers to get size of peripheral
-            # Most SVDs have an address-block that specifies the size, but
-            # they are often far too large, leading to issues with overlaps.
-            length = calculate_peripheral_size(peripheral, default_register_size)
-            peripheral_name = "struct_"+peripheral.name
-            # Generate structure for the peripheral
-            p_sid = idc.GetStrucIdByName(peripheral_name)
-            if p_sid != -1:
-                idc.DelStruc(p_sid)
-            p_sid = idc.AddStrucEx(-1, peripheral_name, 0)
+        peripheral_start = peripheral.base_address
+        peripheral_end = peripheral_start + length
 
-            peripheral_start = peripheral.base_address
-            peripheral_end = peripheral_start + length
+        for register in peripheral.registers:
+            r_flag = 0
+            #print(register.to_dict())
+            if(register.size):
+                rs = register.size / 8
+                if rs == 1:
+                    r_flag = (FF_BYTE|FF_DATA) &0xFFFFFFFF
+                elif rs == 2:
+                    r_flag = (FF_WORD|FF_DATA) &0xFFFFFFFF
+                elif rs == 4:
+                    r_flag = (FF_DWORD|FF_DATA) &0xFFFFFFFF
+                elif rs == 8:
+                    r_flag = (FF_QWRD|FF_DATA) &0xFFFFFFFF
+                else:
+                    raise "FU!"
+                # Generate structure for the register
+                print("\t %s, %d, %x, %d" % (register.name, register.address_offset, r_flag, rs))
+                r_name = register.name
+                idc.AddStrucMember(p_sid, r_name , register.address_offset,flag=r_flag,typeid=-1,nbytes=register.size/8)
+                idc.SetMemberComment(p_sid, register.address_offset, register.description, 1)
+                idc.MakeStructEx(peripheral_start, idc.GetStrucSize(p_sid), peripheral_name)
+                idc.MakeNameEx(peripheral_start,peripheral.name, SN_AUTO | SN_NOCHECK)
+    print("\tDone!")
 
-            for register in peripheral.registers:
-                r_flag = 0
-                print(register.to_dict())
-                if(register.size):
-                    rs = register.size / 8
-                    if rs == 1:
-                        r_flag = (FF_BYTE|FF_DATA) &0xFFFFFFFF
-                    elif rs == 2:
-                        r_flag = (FF_WORD|FF_DATA) &0xFFFFFFFF
-                    elif rs == 4:
-                        r_flag = (FF_DWORD|FF_DATA) &0xFFFFFFFF
-                    elif rs == 8:
-                        r_flag = (FF_QWRD|FF_DATA) &0xFFFFFFFF
-                    else:
-                        raise "FU!"
-                    # Generate structure for the register
-                    print("\t %s, %d, %x, %d" % (register.name, register.address_offset, r_flag, rs))
-                    r_name = register.name
-                    idc.AddStrucMember(p_sid, r_name , register.address_offset,flag=r_flag,typeid=-1,nbytes=register.size/8)
-                    idc.SetMemberComment(p_sid, register.address_offset, register.description, 1)
-                    idc.MakeStructEx(peripheral_start, idc.GetStrucSize(p_sid), peripheral_name)
-                    idc.MakeNameEx(peripheral_start,peripheral.name, SN_AUTO | SN_NOCHECK)
-
+    global nvw
     try:
-        # created already?
-        print("Already created, will close it...")
-        nvw.Close()
-        del nvw
+        nvw.PopulateForm()
     except:
-        pass
-    nvw = NameSpaceForm(peripherals)
+        nvw = NameSpaceForm(peripherals)
     nvw.Show()
 
 

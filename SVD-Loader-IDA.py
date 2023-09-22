@@ -130,7 +130,7 @@ class NameSpaceForm(idaapi.PluginForm):
     def PopulateTree(self):
         print("Populating tree...")
         #self.tree.clear()
-        root.setText(0, "Peripherals")
+        
         root = QtWidgets.QTreeWidgetItem(self.tree)
         for p in self.peripherals:
             p_item = QtWidgets.QTreeWidgetItem(root)
@@ -182,11 +182,10 @@ class NameSpaceForm(idaapi.PluginForm):
     def OnClose(self, form):
         global nvw
         del nvw
-        print("Closed")
+        print("SVDLoader closed")
         return 1
 
     def OnClick(self, it, col):
-        print(it, col, it.text(col))
         if col == 2: #FIXME
             idc.Jump(int(it.text(col),16))
 
